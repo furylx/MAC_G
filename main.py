@@ -189,8 +189,9 @@ def main():
             print(vendor)
 
     elif args.update:
+        print("\n IF NOTHING HAPPENS AFTER ABOUT 1 MINUTE, PRESS CTRL+C AND TRY AGAIN. UNLESS YOU ARE SURE IT IS BECAUSE OF YOUR INTERNET\n")
         update_db()
-
+        
     elif args.clear:
         clear_db()
     else:

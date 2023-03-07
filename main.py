@@ -94,6 +94,7 @@ def mac_generator(user_uaa=False, user_multicast=False):
 
 # Takes the OUI from the user and appends 3 random octets
 def mac_generator_vendor(vendor_octets):
+    vendor_octets = vendor_octets.replace('-', ':')
     if len(vendor_octets) == 8 and re.search(r'([0-9A-Fa-f]{2}[:]){2}[0-9A-Fa-f]{2}', vendor_octets) is not None:
         mac_address = []
 
@@ -101,7 +102,7 @@ def mac_generator_vendor(vendor_octets):
             mac_address.append(random.randint(0x00, 0xff))
         mac_str = ':'.join('{:02x}'.format(byte) for byte in mac_address)
 
-        return vendor_octets + ':' + mac_str
+        return vendor_octets.lower() + ':' + mac_str
     else:
         print("The format must be \'xx:xx:xx\', the last 3 octets are generated automatically.")
 
@@ -138,7 +139,7 @@ def update_db():
 # Fetching the vendor from the db
 def get_vendor(prefix):
     # Connect to db
-    prefix = prefix.upper()
+    prefix = prefix.upper().replace(':', '-')
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
@@ -155,6 +156,34 @@ def clear_db():
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
 
+def get_random_prefix():
+    # Connect to the database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # checking if the db exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='oui'")
+    table_exists = c.fetchone() is not None
+
+    if not table_exists:
+        print("There is no database, run \'--update\' to create one.")
+        return
+
+    # Get the number of prefixes in the database
+    c.execute("SELECT COUNT(*) FROM oui")
+    count = c.fetchone()[0]
+
+    # Generate a random index and select the corresponding prefix and company
+    index = random.randint(0, count-1)
+    c.execute("SELECT prefix, company FROM oui LIMIT 1 OFFSET ?", (index,))
+    result = c.fetchone()
+
+    conn.close()
+    if result:
+        return result[0], result[1]
+    else:
+        return None, None
+
 
 def main():
     print(art)
@@ -167,6 +196,7 @@ def main():
     parser.add_argument('-L', action='store_true', help='Set random LAA MAC address')
     parser.add_argument('-v', metavar='XX:XX:XX', help='Set MAC address using vendor prefix')
     parser.add_argument('-c', metavar='XX:XX:XX:XX:XX:XX', help='Set MAC address to specified value')
+    parser.add_argument('--random', action='store_true', help='Sets a random mac with a random OUI')
 
     # Database related things
     parser.add_argument('--vendor', metavar='XX:XX:XX', help='Looks up the prefix at ieee')
@@ -200,21 +230,29 @@ def main():
                 "Interface argument is required when setting or changing the MAC address. Use -h to see the available options.")
 
         else:
-            if args.v and not any([args.L, args.c, args.U]):
+            if args.v and not any([args.L, args.c, args.U, args.random]):
                 if mac_generator_vendor(args.v) is None:
                     pass
                 else:
                     change_mac(args.interface, mac_generator_vendor(args.v))
 
-            elif args.c and not any([args.L, args.U, args.v]):
+            elif args.random and not any([args.L, args.c, args.U, args.v]):
+                prefix_vendor = get_random_prefix()
+                try:
+                    change_mac(args.interface, mac_generator_vendor(prefix_vendor[0]))
+                    print(f"The prefix: {prefix_vendor[0]} belongs to: {prefix_vendor[1]}")
+                except TypeError:
+                    print("Error while fetching a prefix from the database! Try again.")
+
+            elif args.c and not any([args.L, args.U, args.v, args.random]):
                 if valid_mac(args.c):
                     change_mac(args.interface, valid_mac(args.c))
                 else:
                     print(f"The mac address you entered is not valid")
-            elif args.U and not any([args.L, args.c, args.v]):
+            elif args.U and not any([args.L, args.c, args.v, args.random]):
                 change_mac(args.interface, mac_generator(True, False))
 
-            elif args.L and not any([args.U, args.c, args.v]):
+            elif args.L and not any([args.U, args.c, args.v, args.random]):
                 change_mac(args.interface, mac_generator())
 
             else:
